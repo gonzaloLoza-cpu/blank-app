@@ -4,6 +4,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn import datasets
+from sklearn.model_selection import train_test_split, cross_validate
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.compose import make_column_transformer
+from sklearn.metrics import classification_report, accuracy_score, ConfusionMatrixDisplay
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+# machine learning functions
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import classification_report
+from sklearn import tree
+from sklearn.neighbors import KNeighborsClassifier
+
 
 st.title("🎈 My new streamlit app")
 st.write(
@@ -167,4 +181,143 @@ st.pyplot(plt)
 plt.clf()
 st.write("No missing values remain. The dataset is now clean and ready for modeling.")
 
+st.write("Now onto the first modeling phase!")
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
 
+# Scale the already processed dataframes which now include outlier handling and imputation
+x_train_scaled = scaler.fit_transform(x_train_final)
+x_test_scaled = scaler.transform(x_test_final)
+
+# Train Logistic Regression
+model_initial = LogisticRegression(class_weight='balanced', max_iter=1000)
+model_initial.fit(x_train_scaled, y_train)
+
+# Predictions
+y_pred = model_initial.predict(x_test_scaled)
+
+# Evaluation
+print(classification_report(y_test, y_pred))
+print("Accuracy:", accuracy_score(y_test, y_pred))
+
+# Confusion Matrix
+ConfusionMatrixDisplay.from_estimator(model_initial, x_test_scaled, y_test)
+plt.show()
+st.subheader("Initial Model Results")
+st.write("Here are the results from our initial Logistic Regression model:")
+st.text(classification_report(y_test, y_pred))
+st.write("Accuracy:", accuracy_score(y_test, y_pred))
+st.pyplot(plt)
+plt.clf()
+
+st.subheader("Enhanced Model with L1 Regularization and Combined Features")
+st.write("To improve our model, we decided to implement L1 regularization and combine both numerical and categorical features after scaling.")
+# Train a penalized logistics regression model using the scaled combined dataset
+logreg_l1_combined = LogisticRegression(class_weight='balanced', max_iter=1000,
+                            penalty='l1', solver='liblinear', random_state=42)
+logreg_l1_combined.fit(x_train_final, y_train)
+
+# Make predictions on the test set
+y_pred_l1_combined = logreg_l1_combined.predict(x_test_final)
+
+# Evaluate the model
+print("--- Logistic Regression Model with L1 Regularization (Combined Features) ---")
+print(classification_report(y_test, y_pred_l1_combined))
+print("Accuracy:", accuracy_score(y_test, y_pred_l1_combined))
+
+# Display confusion matrix (optional)
+ConfusionMatrixDisplay.from_estimator(logreg_l1_combined, x_test_final, y_test)
+plt.title('Confusion Matrix for L1 Regularized Model (Combined Features)')
+plt.show()
+st.write("Here are the results from our enhanced Logistic Regression model with L1 regularization and combined features:")
+st.text(classification_report(y_test, y_pred_l1_combined))
+st.write("Accuracy:", accuracy_score(y_test, y_pred_l1_combined))   
+st.pyplot(plt)
+plt.clf()
+st.write("This model showed improved performance over our initial model, indicating that L1 regularization and combining features were beneficial steps.")
+
+
+st.write("Now onto feature selection using Recursive Feature Elimination (RFE).")
+from sklearn.feature_selection import RFE
+estimator = LogisticRegression(class_weight='balanced', max_iter=1000, solver='liblinear')
+
+# Set the number of features to select
+n_features_to_select = 20
+
+# Initialize RFE with the estimator and desired number of features
+selector = RFE(estimator, n_features_to_select=n_features_to_select, step=1)
+
+# Fit RFE on the scaled training data
+selector = selector.fit(x_train_final, y_train)
+
+# Create a DataFrame to store feature rankings
+# Ensure X_train.columns is used for feature names
+featureSupport = pd.DataFrame(data=selector.ranking_, index=list(x_train_processed.columns), columns=['Feature ranking'])
+
+# Plot the feature rankings
+plt.figure(figsize=(10, 20))
+sns.heatmap(featureSupport.sort_values(ascending=True, by='Feature ranking'), annot=True, cmap='viridis')
+plt.title('Wrapper selection of features using RFE')
+plt.ylabel('Features')
+plt.xlabel('Ranking')
+plt.tight_layout()
+plt.show()
+
+print(f"Selected {n_features_to_select} features using RFE.")
+print("Top 5 ranked features:\n", featureSupport.sort_values(by='Feature ranking').head(n_features_to_select))
+st.subheader("Feature Selection with RFE")
+st.write("We applied Recursive Feature Elimination (RFE) to select the most important features for our model. Here are the top ranked features:")
+st.pyplot(plt)
+plt.clf()
+st.write("The RFE process helped us identify the most relevant features, which we can now use to refine our model further.")
+
+selected_features_rfe = x_train_final.columns[selector.support_]
+
+# Select the features based on the RFE selector support
+X_train_selected_rfe = x_train_final[selected_features_rfe]
+X_test_selected_rfe = x_test_final[selected_features_rfe]
+
+# Train a Logistic Regression model with selected features
+logreg_rfe = LogisticRegression(class_weight='balanced', max_iter=1000, solver='liblinear')
+logreg_rfe.fit(X_train_selected_rfe, y_train)
+
+# Make predictions on the test set with selected features
+y_pred_rfe = logreg_rfe.predict(X_test_selected_rfe)
+
+# Evaluate the model
+print("--- Logistic Regression Model with RFE Selected Features ---")
+print(classification_report(y_test, y_pred_rfe))
+print("Accuracy:", accuracy_score(y_test, y_pred_rfe))
+
+# Display confusion matrix (optional)
+ConfusionMatrixDisplay.from_estimator(logreg_rfe, X_test_selected_rfe, y_test)
+plt.title('Confusion Matrix for RFE Selected Features')
+plt.show()
+st.subheader("Model Results with RFE Selected Features")
+st.write("Here are the results from our Logistic Regression model using features selected by RFE:")
+st.text(classification_report(y_test, y_pred_rfe))
+st.write("Accuracy:", accuracy_score(y_test, y_pred_rfe))
+st.pyplot(plt)
+plt.clf()
+st.write("Using RFE-selected features, our model maintained strong performance, demonstrating the effectiveness of feature selection in improving model efficiency without sacrificing accuracy.")
+
+st.subheader("Random Forest Classifier")
+clf = RandomForestClassifier(max_depth=20, random_state=42)
+
+# Step 3: Train the classifier
+clf.fit(x_train_final, y_train)
+# Step 4: Make a prediction
+prediction = clf.predict(x_test_final)
+# Print classification report
+print(classification_report(y_test, prediction))
+# Corrected ConfusionMatrixDisplay usage
+ConfusionMatrixDisplay.from_predictions(y_true=y_test,
+                              y_pred=prediction,
+                              display_labels=clf.classes_)
+
+plt.show()
+st.write("Here are the results from our Random Forest Classifier model:")
+st.text(classification_report(y_test, prediction))
+st.pyplot(plt)
+plt.clf()
+st.write("The Random Forest Classifier provided a robust alternative to logistic regression, capturing complex patterns in the data and yielding competitive performance metrics.")
