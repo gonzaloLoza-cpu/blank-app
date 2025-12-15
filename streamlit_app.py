@@ -92,12 +92,20 @@ numerical_features = ['AGE', 'SYSBP', 'DIABP', 'CIGPDAY', 'BMI', 'HEARTRTE', 'TO
 st.subheader("Outlier Detection and Removal")
 st.write("We used box plots to identify outliers in the numerical features.")
 
-for feature in numerical_features:
-    plt.figure(figsize=(8, 4))
-    sns.boxplot(x=period_1_relev[feature])
-    plt.title(f'Box plot of {feature}')
-    st.pyplot(plt)
-    plt.clf()
+# Creates dropdown menue
+BoxPlot_Raw = st.selectbox(
+    "Select a raw variable to view:",
+    numerical_features
+    )
+
+# Creates graph based on the chosen variable
+plt.figure(figsize=(8, 4))
+sns.boxplot(x=period_1_relev[BoxPlot_Raw])
+plt.title(f'Box plot of {BoxPlot_Raw}')
+st.pyplot(plt)
+plt.clf()
+
+
 
 st.write("We tried several methods such as 2*IQR and Z-score but ultimately decided to use biological limits defined by us to cap our data. We used winsorization to impute these values with NaN for now and later re-impute them.")
 
@@ -123,17 +131,22 @@ for col, cap_val in winsorization_caps.items():
 
 st.write("After applying winsorization, here is how our graphs look now:")
 
-for feature in numerical_features:
-    plt.figure(figsize=(8, 4))
-    sns.boxplot(x=x_train_processed[feature])
-    plt.title(f'Box plot of {feature} after Winsorization')
-    st.pyplot(plt)
-    plt.clf()
+# Creates dropdown menue
+BoxPlot_Winzorized = st.selectbox(
+    "Select a winzorized variable to view:",
+    numerical_features
+    )
 
-st.write("Now that outliers have been handled, we can proceed to impute the missing values.")
+# Creates graph based on the chosen variable
+plt.figure(figsize=(8, 4))
+sns.boxplot(x=x_train_processed[BoxPlot_Winzorized])
+plt.title(f'Box plot of {BoxPlot_Winzorized} after Winsorization')
+st.pyplot(plt)
+plt.clf()
 
-
+st.write("Now that outliers have been handled, we can proceed to impute the missing values.")
 # ==================== IMPUTING MISSING VALUES ====================
+
 
 st.subheader("Imputing Missing Values")
 st.write("Here is a heatmap showing the missing values before imputation:")
