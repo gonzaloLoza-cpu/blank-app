@@ -3,6 +3,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import tensorflow as tf
+import keras
+
+
 from sklearn import datasets
 from sklearn.model_selection import train_test_split, cross_validate
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
@@ -18,7 +22,10 @@ from sklearn.compose import ColumnTransformer
 from sklearn.metrics import (classification_report, confusion_matrix,
                              accuracy_score, roc_auc_score, f1_score,
                              precision_score, recall_score, roc_curve, auc) 
-
+from keras.models import Sequential
+from keras.layers import Dense, Dropout
+from scikeras.wrappers import KerasClassifier
+from sklearn.utils.class_weight import compute_class_weight
 
 
 # ==================== PAGE SETUP ====================
@@ -455,3 +462,136 @@ for k, v in best_params.items():
     st.write(f"  {k}: {v}")
 # Fit on full training data 
 
+
+# ---- Params ----
+EPOCHS = 100
+BATCH_SIZE = 16
+RANDOM_STATE = 42
+
+# ---- Ensure y is 1D ----
+y_train_arr = np.asarray(y_train).ravel()
+y_test_arr   = np.asarray(y_test).ravel()
+
+# ---- Calculate class weights ----
+class_weights_array = compute_class_weight(
+    class_weight='balanced',
+    classes=np.unique(y_train_arr),
+    y=y_train_arr
+)
+class_weights = {0: class_weights_array[0], 1: class_weights_array[1]}
+
+# ---- Model builder: SciKeras passes meta with feature count ----
+def create_mlp_model(meta):
+    n_features = meta["n_features_in_"]
+
+    model = Sequential([
+        Dense(128, activation="relu", input_shape=(n_features,),
+              kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+        Dropout(0.4),
+        Dense(64, activation="relu",
+              kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+        Dropout(0.3),
+        Dense(32, activation="relu",
+              kernel_regularizer=tf.keras.regularizers.l2(0.001)),
+        Dropout(0.2),
+        Dense(1, activation="sigmoid")
+    ])
+
+    opt = tf.keras.optimizers.Adam(learning_rate=0.0005)
+    model.compile(loss="binary_crossentropy", optimizer=opt, metrics=["accuracy", tf.keras.metrics.AUC(name="auc")])
+    return model
+
+# ---- Pipeline: scaler + NN ----
+nn_pipe = Pipeline([
+    ("scaler", StandardScaler()),
+    ("nn", KerasClassifier(
+        model=create_mlp_model,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        verbose=0,
+        class_weight=class_weights # Pass the pre-calculated weights directly
+    ))
+])
+
+# ---- CV ----
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+
+
+def custom_roc_auc(y_true, y_score):
+    return roc_auc_score(y_true, y_score)
+
+scoring_metrics = {
+    "accuracy": "accuracy",
+    "roc_auc": make_scorer(custom_roc_auc, needs_proba=True),
+    "f1_macro": make_scorer(f1_score, average="macro"),
+    "precision_macro": make_scorer(precision_score, average="macro", zero_division=0),
+    "recall_macro": make_scorer(recall_score, average="macro", zero_division=0),
+}
+
+
+st.write("Running leakage-free 5-fold CV for MLP pipeline...")
+
+cv_results = cross_validate(
+    nn_pipe,
+    x_train_final,
+    y_train_arr,
+    scoring=scoring_metrics,
+    cv=cv,
+    return_train_score=False,
+    error_score="raise",
+    n_jobs=1
+)
+
+summary = {}
+for m in scoring_metrics:
+    scores = cv_results[f"test_{m}"]
+    summary[m] = {"Mean": float(np.mean(scores)), "Std": float(np.std(scores))}
+
+cv_df = pd.DataFrame(summary).T
+print("\nCV Results (mean ± std):")
+print(cv_df.round(4))
+
+# ---- Final train on full training set ----
+print("\nTraining final MLP on full training set...")
+final_nn = nn_pipe  # same pipeline object is fine to reuse
+final_nn.fit(
+    x_train_final,
+    y_train_arr
+)
+
+# ---- Test once ----
+print("\nEvaluating on test set once...")
+y_test_proba = final_nn.predict_proba(x_test_final)[:, 1]
+y_test_pred  = (y_test_proba >= 0.5).astype(int)
+
+print("\nClassification report:")
+print(classification_report(y_test_arr, y_test_pred, digits=4))
+
+print("Confusion matrix:")
+print(confusion_matrix(y_test_arr, y_test_pred))
+
+print("Test ROC-AUC:", roc_auc_score(y_test_arr, y_test_proba))
+st.subheader("Neural Network Classifier with Cross-Validation")
+st.write("Cross-validation results for Neural Network Classifier:")
+cv_df = pd.DataFrame(summary).T     
+st.write(cv_df.round(4))
+st.write("\nClassification report:")
+st.text(classification_report(y_test_arr, y_test_pred, digits=4))
+st.write("Test ROC-AUC:", roc_auc_score(y_test_arr, y_test_proba))
+ConfusionMatrixDisplay.from_predictions(y_test_arr, y_test_pred)
+st.pyplot(plt)
+plt.clf()
+
+st.write("The Neural Network Classifier demonstrated weaker performance, yielding worse results than our random forest classifier and logistic regression models. This suggests that for this particular dataset, simpler models may be more effective.")
+st.Subheader("Conclusion and evaluation of models")
+st.write("In conclusion, we explored various modeling techniques to predict stroke risk using the Framingham Heart Study dataset. Our initial Logistic Regression model provided a solid baseline, which we improved upon using Recursive Feature Elimination (RFE) for feature selection. The Random Forest Classifier emerged as the best-performing model, effectively capturing complex patterns in the data and yielding strong performance metrics. Conversely, the Neural Network Classifier underperformed compared to simpler models, indicating that more complex architectures do not always guarantee better results. Overall, our analysis highlights the importance of model selection and feature engineering in predictive modeling tasks.")
+st.write("A summary of the F1-scores for each model is as follows:")
+f1_scores = {
+    "Initial Logistic Regression": f1_score(y_test, y_pred),
+    "RFE Logistic Regression": f1_score(y_test, y_pred_rfe),
+    "Random Forest Classifier": f1_score(y_test, prediction),
+    "Neural Network Classifier": f1_score(y_test_arr, y_test_pred)
+}
+f1_df = pd.DataFrame.from_dict(f1_scores, orient='index', columns=['F1 Score'])
+st.write(f1_df)
+st.write("The Random Forest Classifier achieved the highest F1-score, indicating its superior ability to balance precision and recall in predicting stroke risk within this dataset.")

@@ -5,3 +5,10 @@ scikit-learn
 pandas
 numpy
 plotly
+tensorflow
+keras
+scikeras 
+TensorFlow >=2.0.0
+Keras >=2.3.0
+models
+layers
